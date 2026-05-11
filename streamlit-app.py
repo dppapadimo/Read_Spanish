@@ -43,8 +43,7 @@ def empty_log_df():
     return pd.DataFrame(columns=["date", "count"])
 
 
-@st.cache_data(show_spinner=False)
-def cached_translate(word):
+def do_translate(word):
     return GoogleTranslator(source="auto", target="el").translate(word)
 
 
@@ -100,6 +99,34 @@ def answer_card(translation):
     st.markdown(f'<div class="answer-card">GR {translation}</div>', unsafe_allow_html=True)
 
 
+def read_or_audio_ui(text_key, word_key, save_key, spinner_text):
+    text = st.text_area("Επικολλησε κειμενο:", height=200, key=text_key)
+    word = st.text_input("Γραψε αγνωστη λεξη:", key=word_key)
+
+    if word:
+        word = word.strip()
+        word_card(word)
+
+        if "last_word" not in st.session_state or st.session_state.last_word != word:
+            with st.spinner(spinner_text):
+                st.session_state.last_translation = do_translate(word)
+            st.session_state.last_word = word
+
+        translation = st.session_state.last_translation
+        answer_card(translation)
+
+        if word_exists(st.session_state.words_df, word):
+            st.warning("Η λεξη υπαρχει ηδη στη λιστα σου.")
+        else:
+            if st.button("Αποθηκευση λεξης", key=save_key):
+                saved = add_word(word, translation, text)
+                if saved:
+                    st.success(f"Αποθηκευτηκε: {word} -> {translation}")
+                    st.info(f"Συνολο: {len(st.session_state.words_df)} λεξεις")
+                else:
+                    st.warning("Η λεξη υπαρχει ηδη.")
+
+
 # --- INIT SESSION STATE ---
 
 if "words_df" not in st.session_state:
@@ -114,44 +141,50 @@ if "fc_index" not in st.session_state:
 if "show_answer" not in st.session_state:
     st.session_state.show_answer = False
 
+if "last_word" not in st.session_state:
+    st.session_state.last_word = ""
+
+if "last_translation" not in st.session_state:
+    st.session_state.last_translation = ""
+
 
 # --- SIDEBAR ---
 
 with st.sidebar:
     st.header("Δεδομένα")
 
-    uploaded_words = st.file_uploader("Φόρτωσε Words Excel", type=["xlsx"], key="up_words")
+    uploaded_words = st.file_uploader("Φορτωσε Words Excel", type=["xlsx"], key="up_words")
     if uploaded_words:
         loaded = fix_columns(pd.read_excel(uploaded_words))
         st.session_state.words_df = loaded.copy()
         st.session_state.fc_index = 0
         st.session_state.show_answer = False
-        st.success(f"Φορτώθηκαν {len(loaded)} λέξεις")
+        st.success(f"Φορτωθηκαν {len(loaded)} λεξεις")
 
-    uploaded_log = st.file_uploader("Φόρτωσε Log Excel", type=["xlsx"], key="up_log")
+    uploaded_log = st.file_uploader("Φορτωσε Log Excel", type=["xlsx"], key="up_log")
     if uploaded_log:
         loaded_log = pd.read_excel(uploaded_log)
         st.session_state.log_df = loaded_log
-        st.success(f"Φορτώθηκε log ({len(loaded_log)} εγγραφές)")
+        st.success(f"Φορτωθηκε log ({len(loaded_log)} εγγραφες)")
 
     st.divider()
 
     st.download_button(
-        label="Κατέβασε Λέξεις",
+        label="Κατεβασε Λεξεις",
         data=df_to_excel_bytes(st.session_state.words_df),
         file_name="spanish_words.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
     st.download_button(
-        label="Κατέβασε Log",
+        label="Κατεβασε Log",
         data=df_to_excel_bytes(st.session_state.log_df),
         file_name="study_log.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
     st.divider()
-    st.metric("Συνολικές λέξεις", len(st.session_state.words_df))
+    st.metric("Συνολικες λεξεις", len(st.session_state.words_df))
 
 
 # --- MAIN ---
@@ -159,62 +192,24 @@ with st.sidebar:
 st.title("Spanish Reader")
 
 mode = st.radio(
-    "Λειτουργία:",
-    ["Ανάγνωση", "Audio", "Flashcards", "Ημερολόγιο"],
+    "Λειτουργια:",
+    ["Αναγνωση", "Audio", "Flashcards", "Ημερολογιο"],
     horizontal=True
 )
 
 
 # --- READ ---
 
-if mode == "Ανάγνωση":
-    st.markdown("## Ανάγνωση κειμένου")
-    text = st.text_area("Επικόλλησε κείμενο εδώ:", height=200, key="read_text")
-    word = st.text_input("Γράψε αγνωστη λεξη:", key="read_word")
-
-    if word:
-        word = word.strip()
-        word_card(word)
-
-        with st.spinner("Μετάφραση..."):
-            translation = cached_translate(word)
-
-        answer_card(translation)
-
-        if word_exists(st.session_state.words_df, word):
-            st.warning("Η λεξη υπαρχει ηδη στη λιστα σου.")
-        else:
-            if st.button("Αποθηκευση λεξης", key="read_save"):
-                saved = add_word(word, translation, text)
-                if saved:
-                    st.success(f"Αποθηκευτηκε: {word} -> {translation}")
-                    st.info(f"Συνολο: {len(st.session_state.words_df)} λεξεις")
+if mode == "Αναγνωση":
+    st.markdown("## Αναγνωση κειμενου")
+    read_or_audio_ui("read_text", "read_word", "read_save", "Μεταφραση...")
 
 
 # --- AUDIO ---
 
 elif mode == "Audio":
     st.markdown("## Ακουστικο περιεχομενο")
-    text = st.text_area("Επικολλησε transcript:", height=200, key="audio_text")
-    word = st.text_input("Γραψε αγνωστη λεξη:", key="audio_word")
-
-    if word:
-        word = word.strip()
-        word_card(word)
-
-        with st.spinner("Μεταφραση..."):
-            translation = cached_translate(word)
-
-        answer_card(translation)
-
-        if word_exists(st.session_state.words_df, word):
-            st.warning("Η λεξη υπαρχει ηδη στη λιστα σου.")
-        else:
-            if st.button("Αποθηκευση λεξης", key="audio_save"):
-                saved = add_word(word, translation, text)
-                if saved:
-                    st.success(f"Αποθηκευτηκε: {word} -> {translation}")
-                    st.info(f"Συνολο: {len(st.session_state.words_df)} λεξεις")
+    read_or_audio_ui("audio_text", "audio_word", "audio_save", "Μεταφραση...")
 
 
 # --- FLASHCARDS ---
@@ -227,7 +222,8 @@ elif mode == "Flashcards":
 
     if total == 0:
         st.warning("Δεν υπαρχουν λεξεις. Προσθεσε απο Αναγνωση η Audio.")
-    else:
+
+    if total > 0:
         if st.session_state.fc_index >= total:
             st.session_state.fc_index = 0
 
@@ -240,14 +236,16 @@ elif mode == "Flashcards":
         if row["sentence"]:
             st.caption(str(row["sentence"]))
 
+        if st.session_state.show_answer:
+            answer_card(row["translation"])
+
         if not st.session_state.show_answer:
             if st.button("Εμφανιση απαντησης", key="fc_show"):
                 st.session_state.show_answer = True
                 st.rerun()
-        else:
-            answer_card(row["translation"])
 
         st.divider()
+
         col1, col2 = st.columns(2)
 
         with col1:
@@ -265,14 +263,15 @@ elif mode == "Flashcards":
 
 # --- CALENDAR ---
 
-elif mode == "Ημερολόγιο":
+elif mode == "Ημερολογιο":
     st.markdown("## Ιστορικο μελετης")
 
     log = st.session_state.log_df
 
     if len(log) == 0:
         st.info("Δεν υπαρχει ιστορικο ακομα.")
-    else:
+
+    if len(log) > 0:
         log_display = log.copy()
         log_display.columns = ["Ημερομηνια", "Λεξεις"]
         log_display = log_display.sort_values("Ημερομηνια", ascending=False)
