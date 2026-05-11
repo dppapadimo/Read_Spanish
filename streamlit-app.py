@@ -17,6 +17,9 @@ CSS = (
     ".answer-card {"
     "background:#0f4c2a;color:#7dffb3;padding:1.5rem;border-radius:16px;"
     "text-align:center;font-size:1.5rem;margin:1rem 0;}"
+    ".success-banner {"
+    "background:#1a6b3a;color:white;padding:1rem;border-radius:10px;"
+    "text-align:center;font-size:1.2rem;margin:1rem 0;}"
     "</style>"
 )
 st.markdown(CSS, unsafe_allow_html=True)
@@ -70,8 +73,9 @@ def add_word(word, translation, text):
         "next_review": str(date.today())
     }
 
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    st.session_state.words_df = df
+    st.session_state.words_df = pd.concat(
+        [df, pd.DataFrame([new_row])], ignore_index=True
+    )
 
     log = st.session_state.log_df
     today = str(date.today())
@@ -79,7 +83,9 @@ def add_word(word, translation, text):
     if today in log["date"].astype(str).values:
         log.loc[log["date"].astype(str) == today, "count"] += 1
     else:
-        log = pd.concat([log, pd.DataFrame([{"date": today, "count": 1}])], ignore_index=True)
+        log = pd.concat(
+            [log, pd.DataFrame([{"date": today, "count": 1}])], ignore_index=True
+        )
 
     st.session_state.log_df = log
     return True
@@ -99,32 +105,39 @@ def answer_card(translation):
     st.markdown(f'<div class="answer-card">GR {translation}</div>', unsafe_allow_html=True)
 
 
-def read_or_audio_ui(text_key, word_key, save_key, spinner_text):
+def input_ui(text_key, word_key, save_key):
     text = st.text_area("Επικολλησε κειμενο:", height=200, key=text_key)
     word = st.text_input("Γραψε αγνωστη λεξη:", key=word_key)
 
-    if word:
-        word = word.strip()
-        word_card(word)
+    if not word:
+        return
 
-        if "last_word" not in st.session_state or st.session_state.last_word != word:
-            with st.spinner(spinner_text):
-                st.session_state.last_translation = do_translate(word)
-            st.session_state.last_word = word
+    word = word.strip()
+    word_card(word)
 
-        translation = st.session_state.last_translation
-        answer_card(translation)
+    last_key = f"last_word_{word_key}"
+    trans_key = f"last_trans_{word_key}"
 
-        if word_exists(st.session_state.words_df, word):
-            st.warning("Η λεξη υπαρχει ηδη στη λιστα σου.")
-        else:
-            if st.button("Αποθηκευση λεξης", key=save_key):
-                saved = add_word(word, translation, text)
-                if saved:
-                    st.success(f"Αποθηκευτηκε: {word} -> {translation}")
-                    st.info(f"Συνολο: {len(st.session_state.words_df)} λεξεις")
-                else:
-                    st.warning("Η λεξη υπαρχει ηδη.")
+    if st.session_state.get(last_key) != word:
+        with st.spinner("Μεταφραση..."):
+            st.session_state[trans_key] = do_translate(word)
+        st.session_state[last_key] = word
+
+    translation = st.session_state[trans_key]
+    answer_card(translation)
+
+    already = word_exists(st.session_state.words_df, word)
+
+    if already:
+        st.warning("Η λεξη υπαρχει ηδη στη λιστα σου.")
+        return
+
+    if st.button("Αποθηκευση λεξης", key=save_key):
+        saved = add_word(word, translation, text)
+        if saved:
+            st.session_state["last_saved"] = word
+            st.session_state[last_key] = ""
+            st.rerun()
 
 
 # --- INIT SESSION STATE ---
@@ -141,17 +154,14 @@ if "fc_index" not in st.session_state:
 if "show_answer" not in st.session_state:
     st.session_state.show_answer = False
 
-if "last_word" not in st.session_state:
-    st.session_state.last_word = ""
-
-if "last_translation" not in st.session_state:
-    st.session_state.last_translation = ""
+if "last_saved" not in st.session_state:
+    st.session_state.last_saved = ""
 
 
 # --- SIDEBAR ---
 
 with st.sidebar:
-    st.header("Δεδομένα")
+    st.header("Δεδομενα")
 
     uploaded_words = st.file_uploader("Φορτωσε Words Excel", type=["xlsx"], key="up_words")
     if uploaded_words:
@@ -191,6 +201,15 @@ with st.sidebar:
 
 st.title("Spanish Reader")
 
+if st.session_state.last_saved:
+    saved_word = st.session_state.last_saved
+    total_now = len(st.session_state.words_df)
+    st.markdown(
+        f'<div class="success-banner">Αποθηκευτηκε: {saved_word} | Συνολο: {total_now}</div>',
+        unsafe_allow_html=True
+    )
+    st.session_state.last_saved = ""
+
 mode = st.radio(
     "Λειτουργια:",
     ["Αναγνωση", "Audio", "Flashcards", "Ημερολογιο"],
@@ -202,14 +221,14 @@ mode = st.radio(
 
 if mode == "Αναγνωση":
     st.markdown("## Αναγνωση κειμενου")
-    read_or_audio_ui("read_text", "read_word", "read_save", "Μεταφραση...")
+    input_ui("read_text", "read_word", "read_save")
 
 
 # --- AUDIO ---
 
 elif mode == "Audio":
     st.markdown("## Ακουστικο περιεχομενο")
-    read_or_audio_ui("audio_text", "audio_word", "audio_save", "Μεταφραση...")
+    input_ui("audio_text", "audio_word", "audio_save")
 
 
 # --- FLASHCARDS ---
